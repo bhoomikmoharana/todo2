@@ -46,8 +46,7 @@ export function TodoList({ user }: TodoListProps) {
       user_id: user.id,
       text,
       completed: false,
-      due_date: dueDate ? dueDate.toISOString().split("T")[0] : null,
-    }
+      due_date: dueDate ? `${dueDate.getFullYear()}-${String(dueDate.getMonth()+1).padStart(2,"0")}-${String(dueDate.getDate()).padStart(2,"0")}` : null,    }
 
     const { data, error } = await supabase
       .from("todos")
@@ -132,7 +131,7 @@ export function TodoList({ user }: TodoListProps) {
     // Filter by selected date
     if (selectedDate) {
       if (!todo.due_date) return false
-      const todoDate = new Date(todo.due_date)
+      const todoDate = new Date(todo.due_date + "T00:00:00")
       return (
         todoDate.getFullYear() === selectedDate.getFullYear() &&
         todoDate.getMonth() === selectedDate.getMonth() &&
