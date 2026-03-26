@@ -1,209 +1,170 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
-import { TodoInput } from "./todo-input"
-import { TodoItem } from "./todo-item"
-import { TodoFilters } from "./todo-filters"
-import { TodoCalendar } from "./todo-calendar"
-import type { Todo, FilterType } from "@/lib/types"
-import type { User } from "@supabase/supabase-js"
+import { useState, useRef, useEffect } from "react"
+import { Check, Pencil, Trash2, X, Calendar } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import type { Todo } from "@/lib/types"
 
-interface TodoListProps {
-  user: User
+interface TodoItemProps {
+  todo: Todo
+  onToggle: (id: string) => void
+  onDelete: (id: string) => void
+  onEdit: (id: string, newText: string, newDueDate?: Date | null) => void
 }
 
-export function TodoList({ user }: TodoListProps) {
-  const [todos, setTodos] = useState<Todo[]>([])
-  const [filter, setFilter] = useState<FilterType>("all")
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+export function TodoItem({ todo, onToggle, onDelete, onEdit }: TodoItemProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editValue, setEditValue] = useState(todo.text)
+  const inputRef = useRef<HTMLInputElement>(null)
 
-  const supabase = createClient()
-
-  // Fetch todos on mount
   useEffect(() => {
-    const fetchTodos = async () => {
-      const { data, error } = await supabase
-        .from("todos")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-
-      if (error) {
-        console.error("Error fetching todos:", error.message)
-      } else {
-        setTodos(data || [])
-      }
-      setIsLoading(false)
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
     }
+  }, [isEditing])
 
-    fetchTodos()
-  }, [user.id])
-
-  const addTodo = async (text: string, dueDate: Date | null) => {
-    const newTodo = {
-      user_id: user.id,
-      text,
-      completed: false,
-      due_date: dueDate ? `${dueDate.getFullYear()}-${String(dueDate.getMonth()+1).padStart(2,"0")}-${String(dueDate.getDate()).padStart(2,"0")}` : null,
-    }
-
-    const { data, error } = await supabase
-      .from("todos")
-      .insert(newTodo)
-      .select()
-      .single()
-
-    if (error) {
-      console.error("Error adding todo:", error.message)
-    } else if (data) {
-      setTodos((prev) => [data, ...prev])
-    }
-  }
-
-  const toggleTodo = async (id: string) => {
-    const todo = todos.find((t) => t.id === id)
-    if (!todo) return
-
-    const { error } = await supabase
-      .from("todos")
-      .update({ completed: !todo.completed, updated_at: new Date().toISOString() })
-      .eq("id", id)
-
-    if (error) {
-      console.error("Error toggling todo:", error.message)
+  const handleSave = () => {
+    const trimmed = editValue.trim()
+    if (trimmed && trimmed !== todo.text) {
+      onEdit(todo.id, trimmed)
     } else {
-      setTodos((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
-      )
+      setEditValue(todo.text)
+    }
+    setIsEditing(false)
+  }
+
+  const handleCancel = () => {
+    setEditValue(todo.text)
+    setIsEditing(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSave()
+    } else if (e.key === "Escape") {
+      handleCancel()
     }
   }
 
-  const deleteTodo = async (id: string) => {
-    const { error } = await supabase.from("todos").delete().eq("id", id)
+  const formatDueDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const today = new Date()
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
 
-    if (error) {
-      console.error("Error deleting todo:", error.message)
-    } else {
-      setTodos((prev) => prev.filter((t) => t.id !== id))
+    // Adjust for timezone offset
+    const localDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000)
+
+    if (
+      localDate.getFullYear() === today.getFullYear() &&
+      localDate.getMonth() === today.getMonth() &&
+      localDate.getDate() === today.getDate()
+    ) {
+      return "Today"
     }
+    if (
+      localDate.getFullYear() === tomorrow.getFullYear() &&
+      localDate.getMonth() === tomorrow.getMonth() &&
+      localDate.getDate() === tomorrow.getDate()
+    ) {
+      return "Tomorrow"
+    }
+    return localDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
   }
 
-  const editTodo = async (id: string, newText: string, newDueDate: Date | null | undefined) => {
-    const updates: Partial<Todo> = {
-      text: newText,
-      updated_at: new Date().toISOString(),
-    }
-    
-    if (newDueDate !== undefined) {
-      updates.due_date = newDueDate ? `${newDueDate.getFullYear()}-${String(newDueDate.getMonth()+1).padStart(2,"0")}-${String(newDueDate.getDate()).padStart(2,"0")}` : null
-    }
-
-    const { error } = await supabase.from("todos").update(updates).eq("id", id)
-
-    if (error) {
-      console.error("Error editing todo:", error.message)
-    } else {
-      setTodos((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
-      )
-    }
-  }
-
-  const clearCompleted = async () => {
-    const completedIds = todos.filter((t) => t.completed).map((t) => t.id)
-    
-    const { error } = await supabase.from("todos").delete().in("id", completedIds)
-
-    if (error) {
-      console.error("Error clearing completed:", error.message)
-    } else {
-      setTodos((prev) => prev.filter((t) => !t.completed))
-    }
-  }
-
-  // Filter todos
-  const filteredTodos = todos.filter((todo) => {
-    // Filter by completion status
-    if (filter === "active" && todo.completed) return false
-    if (filter === "completed" && !todo.completed) return false
-
-    // Filter by selected date
-    if (selectedDate) {
-      if (!todo.due_date) return false
-      const todoDate = new Date(todo.due_date + "T00:00:00")
-      return (
-        todoDate.getFullYear() === selectedDate.getFullYear() &&
-        todoDate.getMonth() === selectedDate.getMonth() &&
-        todoDate.getDate() === selectedDate.getDate()
-      )
-    }
-
-    return true
-  })
-
-  const activeCount = todos.filter((todo) => !todo.completed).length
-  const completedCount = todos.filter((todo) => todo.completed).length
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    )
+  const isOverdue = () => {
+    if (!todo.due_date || todo.completed) return false
+    // Parse as local time by appending T00:00:00 to avoid UTC offset issues
+    const dueDate = new Date(todo.due_date + "T00:00:00")
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return dueDate < today
   }
 
   return (
-    <div className="space-y-6">
-      <TodoCalendar
-        todos={todos}
-        selectedDate={selectedDate}
-        onSelectDate={setSelectedDate}
-      />
+    <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50">
+      <button
+        onClick={() => onToggle(todo.id)}
+        className={cn(
+          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-all",
+          todo.completed
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-muted-foreground/30 hover:border-primary"
+        )}
+        aria-label={todo.completed ? "Mark as incomplete" : "Mark as complete"}
+      >
+        {todo.completed && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+      </button>
 
-      <TodoInput onAdd={addTodo} defaultDate={selectedDate} />
-
-      {todos.length > 0 && (
-        <>
-          <TodoFilters
-            filter={filter}
-            onFilterChange={setFilter}
-            activeCount={activeCount}
-            completedCount={completedCount}
-            onClearCompleted={clearCompleted}
-            selectedDate={selectedDate}
-            onClearDate={() => setSelectedDate(null)}
+      {isEditing ? (
+        <div className="flex flex-1 items-center gap-2">
+          <Input
+            ref={inputRef}
+            type="text"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={handleSave}
+            className="h-9 flex-1"
           />
-
-          <div className="divide-y divide-border rounded-lg border border-border bg-card">
-            {filteredTodos.length === 0 ? (
-              <div className="px-4 py-8 text-center text-muted-foreground">
-                {selectedDate
-                  ? `No tasks for ${selectedDate.toLocaleDateString()}`
-                  : `No ${filter === "all" ? "" : filter} tasks`}
-              </div>
-            ) : (
-              filteredTodos.map((todo) => (
-                <TodoItem
-                  key={todo.id}
-                  todo={todo}
-                  onToggle={toggleTodo}
-                  onDelete={deleteTodo}
-                  onEdit={editTodo}
-                />
-              ))
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleCancel}
+            className="h-9 w-9 p-0"
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Cancel</span>
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-1 flex-col gap-0.5">
+            <span
+              className={cn(
+                "text-base transition-all",
+                todo.completed && "text-muted-foreground line-through"
+              )}
+            >
+              {todo.text}
+            </span>
+            {todo.due_date && (
+              <span
+                className={cn(
+                  "flex items-center gap-1 text-xs",
+                  isOverdue() ? "text-destructive" : "text-muted-foreground"
+                )}
+              >
+                <Calendar className="h-3 w-3" />
+                {formatDueDate(todo.due_date)}
+              </span>
             )}
           </div>
-        </>
-      )}
 
-      {todos.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border px-4 py-12 text-center">
-          <p className="text-muted-foreground">
-            No tasks yet. Add one above to get started.
-          </p>
-        </div>
+          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setIsEditing(true)}
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+            >
+              <Pencil className="h-4 w-4" />
+              <span className="sr-only">Edit</span>
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onDelete(todo.id)}
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="sr-only">Delete</span>
+            </Button>
+          </div>
+        </>
       )}
     </div>
   )
