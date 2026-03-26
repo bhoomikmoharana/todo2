@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import TodoList from '@/components/todo-list'
 
 export default async function Page() {
   const supabase = await createClient()
@@ -12,5 +13,13 @@ export default async function Page() {
     redirect('/auth/login')
   }
 
-  return <div>Welcome to your To-Do App</div>
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">
+        Welcome {user.email}
+      </h1>
+
+      <TodoList />
+    </div>
+  )
 }
